@@ -144,14 +144,23 @@ func filesReader() {
 	close(filesQueue)
 }
 
-func figerprintGenerator(waitGroup *sync.WaitGroup) {
-	defer waitGroup.Done()
+func figerprintGenerator(index int, waitGroup *sync.WaitGroup) {
+	if index != 0 {
+		defer waitGroup.Done()
+	}
+
 	for file := range filesQueue {
 		finger, err := Fingerprint(file)
 		if err == nil {
 			results <- Result{file, finger}
 		}
 	}
+	if index == 0 {
+		waitGroup.Done()
+		waitGroup.Wait()
+		close(results)
+	}
+
 }
 
 func ResultsReciever() {
@@ -173,12 +182,11 @@ var results = make(chan Result)
 func main() {
 	var waitGroup sync.WaitGroup
 	go filesReader()
-	go ResultsReciever(waitGroup)
-	waitGroup.Add(1)
-	for i := 0; i < 9; i++ {
-		go figerprintGenerator(&waitGroup)
+
+	for i := 0; i < 12; i++ {
+		waitGroup.Add(1)
+		go figerprintGenerator(i, &waitGroup)
 	}
 
-	waitGroup.Wait()
-
+	ResultsReciever()
 }
