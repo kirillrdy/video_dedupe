@@ -95,7 +95,7 @@ func loadHash() Database {
 	return db
 }
 
-func main2() {
+func dedupe_main() {
 	files, err := filepath.Glob("/storage/videos/*.mp4")
 	crash(err)
 	db := loadHash()
@@ -114,19 +114,26 @@ func main2() {
 			f1 := db[firstFile]
 			f2 := db[secondFile]
 			diff := cosine(f1, f2)
-			if diff > 0.95 {
+			if diff > 0.97 {
 				dupes = append(dupes, secondFile)
 				fmt.Printf("%s,%s,%f\n", firstFile, secondFile, diff)
 			}
 		}
 		if len(dupes) > 0 {
-			dupeDirName := fmt.Sprintf("/storage/dupes/%d", firstIndex)
+			dupeDirName := "/storage/dupes"
+			dupeDirNameMinusOriginal := "/storage/dupes_minus_original"
 			err := os.MkdirAll(dupeDirName, os.ModePerm)
 			crash(err)
-			err = os.Symlink(firstFile, dupeDirName+"/"+"original.mp4")
+
+			err = os.MkdirAll(dupeDirNameMinusOriginal, os.ModePerm)
+			crash(err)
+
+			err = os.Link(firstFile, fmt.Sprintf("%s/%d-0.mp4", dupeDirName, firstIndex))
 			crash(err)
 			for i, duplicate := range dupes {
-				err = os.Symlink(duplicate, dupeDirName+"/"+fmt.Sprintf("dupe-%d.mp4", i))
+				err = os.Link(duplicate, dupeDirName+"/"+fmt.Sprintf("%d-%d.mp4", firstIndex, i+1))
+				crash(err)
+				err = os.Link(duplicate, dupeDirNameMinusOriginal+"/"+fmt.Sprintf("%d-%d.mp4", firstIndex, i+1))
 				crash(err)
 			}
 		}
@@ -137,9 +144,12 @@ func main2() {
 func filesReader() {
 	allFiles, err := filepath.Glob("/storage/videos/*.mp4")
 	crash(err)
+	db := loadHash()
 	for i, file := range allFiles {
-		filesQueue <- file
-		log.Print(i)
+		if _, ok := db[file]; ok == false {
+			filesQueue <- file
+			log.Print(i)
+		}
 	}
 	close(filesQueue)
 }
@@ -165,8 +175,13 @@ func figerprintGenerator(index int, waitGroup *sync.WaitGroup) {
 
 func ResultsReciever() {
 	db := loadHash()
+	counter := 0
 	for result := range results {
 		db[result.Filename] = result.Finger
+		counter++
+		if math.Mod(float64(counter), 100) == 0 {
+			saveDb(db)
+		}
 	}
 	saveDb(db)
 }
@@ -179,7 +194,7 @@ type Result struct {
 var filesQueue = make(chan string)
 var results = make(chan Result)
 
-func main() {
+func fingerprint_main() {
 	var waitGroup sync.WaitGroup
 	go filesReader()
 
@@ -189,4 +204,9 @@ func main() {
 	}
 
 	ResultsReciever()
+}
+
+func main() {
+	fingerprint_main()
+	dedupe_main()
 }
